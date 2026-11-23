@@ -1,43 +1,29 @@
-name: Synthetic freeze proof
+name: Synthetic status source proof
 on:
   workflow_dispatch:
     inputs:
-      operation:
-        type: choice
-        required: true
-        options: [prepare, forge-deployment]
       target_sha:
         type: string
-      target_environment:
+        required: true
+      target_context:
         type: string
+        required: true
 permissions:
-  contents: write
-  pull-requests: write
-  deployments: write
+  statuses: write
 jobs:
   probe:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      OPERATION: ${{ inputs.operation }}
       TARGET_SHA: ${{ inputs.target_sha }}
-      TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+      TARGET_CONTEXT: ${{ inputs.target_context }}
     steps:
-      - name: Create synthetic PRs or test raw deployment authorization
+      - name: Deliberately write matching status using the wrong integration
         run: |
           set -euo pipefail
-          if [ "$OPERATION" = prepare ]; then
-            for probe in ordinary delayed release; do
-              branch="probe/$GITHUB_RUN_ID/$probe"
-              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/heads/$branch" -f "sha=$GITHUB_SHA" --silent
-              content=$(printf 'Synthetic freeze probe: %s\n' "$probe" | base64 -w0)
-              gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$probe.txt" -f "branch=$branch" -f "message=test: synthetic $probe probe" -f "content=$content" --silent
-              gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" -f "head=$branch" -f base=main -f "title=Synthetic $probe freeze probe" -f body='Synthetic files only. Disposable merge-enforcement test.' --jq '{number,headSha:.head.sha,author:.user.login}'
-            done
-          elif [ "$OPERATION" = forge-deployment ]; then
-            [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
-            [[ "$TARGET_ENVIRONMENT" =~ ^freeze-spike-window-[0-9]+$ ]]
-            jq -n --arg ref "$TARGET_SHA" --arg environment "$TARGET_ENVIRONMENT" '{ref:$ref,environment:$environment,auto_merge:false,production_environment:false,required_contexts:[]}' > "$RUNNER_TEMP/deployment.json"
-            deployment=$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input "$RUNNER_TEMP/deployment.json" --jq .id)
-            gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -f state=success -f "environment=$TARGET_ENVIRONMENT" -F auto_inactive=false --jq '{id,state,environment}'
-          fi
+          [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$TARGET_CONTEXT" =~ ^release-window-status-[0-9]+-[0-9]+$ ]]
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA" \
+            -f state=success -f "context=$TARGET_CONTEXT" \
+            -f description='Synthetic GITHUB_TOKEN source-forgery probe' \
+            --jq '{id,state,context,creator:.creator.login}'
