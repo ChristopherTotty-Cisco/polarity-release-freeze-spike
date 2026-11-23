@@ -37,6 +37,7 @@ jobs:
           elif [ "$OPERATION" = forge-deployment ]; then
             [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
             [[ "$TARGET_ENVIRONMENT" =~ ^freeze-spike-window-[0-9]+$ ]]
-            deployment=$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" -f "ref=$TARGET_SHA" -F auto_merge=false -f "environment=$TARGET_ENVIRONMENT" -F production_environment=false -f 'required_contexts[]' --jq .id)
+            jq -n --arg ref "$TARGET_SHA" --arg environment "$TARGET_ENVIRONMENT" '{ref:$ref,environment:$environment,auto_merge:false,production_environment:false,required_contexts:[]}' > "$RUNNER_TEMP/deployment.json"
+            deployment=$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input "$RUNNER_TEMP/deployment.json" --jq .id)
             gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -f state=success -f "environment=$TARGET_ENVIRONMENT" -F auto_inactive=false --jq '{id,state,environment}'
           fi
