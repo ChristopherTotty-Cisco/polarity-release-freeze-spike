@@ -5,7 +5,9 @@ on:
       operation:
         type: choice
         required: true
-        options: [prepare, forge-deployment]
+        options: [prepare, forge-deployment, attempt-merge, attempt-update]
+      target_pr:
+        type: string
       target_sha:
         type: string
       target_environment:
@@ -22,6 +24,7 @@ jobs:
       OPERATION: ${{ inputs.operation }}
       TARGET_SHA: ${{ inputs.target_sha }}
       TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+      TARGET_PR: ${{ inputs.target_pr }}
     steps:
       - name: Create synthetic PRs or test raw deployment authorization
         run: |
@@ -40,4 +43,17 @@ jobs:
             jq -n --arg ref "$TARGET_SHA" --arg environment "$TARGET_ENVIRONMENT" '{ref:$ref,environment:$environment,auto_merge:false,production_environment:false,required_contexts:[]}' > "$RUNNER_TEMP/deployment.json"
             deployment=$(gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input "$RUNNER_TEMP/deployment.json" --jq .id)
             gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -f state=success -f "environment=$TARGET_ENVIRONMENT" -F auto_inactive=false --jq '{id,state,environment}'
+          elif [ "$OPERATION" = attempt-merge ]; then
+            [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
+            [[ "$TARGET_PR" =~ ^[0-9]+$ ]]
+            if gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$TARGET_PR/merge" -f merge_method=squash -f "sha=$TARGET_SHA"; then
+              echo 'Unexpected bot merge during hard freeze' >&2
+              exit 1
+            fi
+          elif [ "$OPERATION" = attempt-update ]; then
+            [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]]
+            if gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/main" -f "sha=$TARGET_SHA" -F force=false; then
+              echo 'Unexpected bot update during hard freeze' >&2
+              exit 1
+            fi
           fi
